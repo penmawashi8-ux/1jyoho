@@ -32,8 +32,8 @@ echo.
 
 echo [RUN] Installing packages...
 call venv\Scripts\activate.bat
-pip install --upgrade pip -q
-pip install -r requirements.txt
+pip install --upgrade pip -q --no-cache-dir
+pip install --no-cache-dir -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Package installation failed.
     pause
