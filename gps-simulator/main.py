@@ -43,13 +43,19 @@ def _get_tunnels() -> dict:
 
 
 def _get_rsd() -> tuple[str, int]:
-    """Return (rsd_address, rsd_port) from the first active tunnel."""
+    """Return (rsd_address, rsd_port) from the first active tunnel.
+
+    tunneld HTTP response format:
+      {"UDID": [{"tunnel-address": "...", "tunnel-port": 12345, ...}]}
+    """
     tunnels = _get_tunnels()
     if not tunnels:
         raise RuntimeError("tunneld にアクティブなトンネルがありません。iPhoneをUSBで接続してください。")
-    # tunnels is a dict keyed by UDID
-    first = next(iter(tunnels.values()))
-    return first["address"], int(first["port"])
+    tunnel_list = next(iter(tunnels.values()))  # list for first UDID
+    if not tunnel_list:
+        raise RuntimeError("トンネル情報が空です。")
+    t = tunnel_list[0]
+    return t["tunnel-address"], int(t["tunnel-port"])
 
 
 def _run(args: list[str], timeout: int = 30) -> str:
