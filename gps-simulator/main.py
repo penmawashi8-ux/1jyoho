@@ -37,7 +37,7 @@ def _cli_path() -> str:
 
 def _get_tunnels() -> dict:
     """Query the tunneld HTTP server for active tunnels."""
-    url = f"http://127.0.0.1:{TUNNELD_PORT}/list-tunnels"
+    url = f"http://127.0.0.1:{TUNNELD_PORT}/"
     with urllib.request.urlopen(url, timeout=3) as resp:
         return json.loads(resp.read())
 
