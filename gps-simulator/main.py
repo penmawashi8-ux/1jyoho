@@ -1,5 +1,7 @@
+import json
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -16,6 +18,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+TUNNELD_PORT = 49151  # default tunneld HTTP port
+
 
 class LocationRequest(BaseModel):
     lat: float
@@ -29,6 +33,23 @@ def _cli_path() -> str:
         if p.exists():
             return str(p)
     return "pymobiledevice3"
+
+
+def _get_tunnels() -> dict:
+    """Query the tunneld HTTP server for active tunnels."""
+    url = f"http://127.0.0.1:{TUNNELD_PORT}/list-tunnels"
+    with urllib.request.urlopen(url, timeout=3) as resp:
+        return json.loads(resp.read())
+
+
+def _get_rsd() -> tuple[str, int]:
+    """Return (rsd_address, rsd_port) from the first active tunnel."""
+    tunnels = _get_tunnels()
+    if not tunnels:
+        raise RuntimeError("tunneld にアクティブなトンネルがありません。iPhoneをUSBで接続してください。")
+    # tunnels is a dict keyed by UDID
+    first = next(iter(tunnels.values()))
+    return first["address"], int(first["port"])
 
 
 def _run(args: list[str], timeout: int = 30) -> str:
@@ -46,6 +67,12 @@ def _run(args: list[str], timeout: int = 30) -> str:
     return out
 
 
+def _run_rsd(args: list[str], timeout: int = 30) -> str:
+    """Run a command via the RSD tunnel (iOS 17+)."""
+    host, port = _get_rsd()
+    return _run(["--rsd", host, str(port)] + args, timeout=timeout)
+
+
 @app.get("/")
 async def index():
     return FileResponse("index.html")
@@ -53,7 +80,16 @@ async def index():
 
 @app.get("/api/device")
 async def get_device_list():
-    # usbmux (iOS 16 and below)
+    # iOS 17+: query tunneld HTTP server
+    try:
+        tunnels = _get_tunnels()
+        if tunnels:
+            devices = [{"udid": udid, "name": udid} for udid in tunnels]
+            return {"connected": True, "devices": devices}
+    except Exception:
+        pass
+
+    # iOS 16 and below: usbmux
     try:
         from pymobiledevice3.usbmux import list_devices
         devices = list_devices()
@@ -65,27 +101,33 @@ async def get_device_list():
     except Exception:
         pass
 
-    # tunneld (iOS 17+)
-    try:
-        from pymobiledevice3.tunneld import get_tunneld_devices
-        td = await get_tunneld_devices()
-        if td:
-            return {
-                "connected": True,
-                "devices": [{"udid": str(d.udid), "name": str(d.udid)} for d in td],
-            }
-    except Exception:
-        pass
-
     return {
         "connected": False,
         "devices": [],
-        "message": "デバイスが見つかりません。iPhoneをUSBで接続してtunneldが起動中か確認してください。",
+        "message": "デバイスが見つかりません。iPhoneをUSBで接続しtunneldが起動中か確認してください。",
     }
 
 
 @app.post("/api/location")
 async def set_location(req: LocationRequest):
+    errors = []
+
+    # iOS 17+: via RSD tunnel
+    try:
+        _run_rsd([
+            "developer", "dvt", "simulate-location", "set",
+            "--", str(req.lat), str(req.lng),
+        ])
+        return {
+            "success": True,
+            "lat": req.lat,
+            "lng": req.lng,
+            "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
+        }
+    except Exception as e:
+        errors.append(f"RSD: {e}")
+
+    # iOS 16 and below: no RSD
     try:
         _run([
             "developer", "dvt", "simulate-location", "set",
@@ -98,13 +140,25 @@ async def set_location(req: LocationRequest):
             "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"位置設定エラー: {e}")
+        errors.append(f"usbmux: {e}")
+
+    raise HTTPException(status_code=500, detail=" / ".join(errors))
 
 
 @app.post("/api/location/reset")
 async def reset_location():
+    errors = []
+
+    try:
+        _run_rsd(["developer", "dvt", "simulate-location", "clear"])
+        return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
+    except Exception as e:
+        errors.append(f"RSD: {e}")
+
     try:
         _run(["developer", "dvt", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"リセットエラー: {e}")
+        errors.append(f"usbmux: {e}")
+
+    raise HTTPException(status_code=500, detail=" / ".join(errors))
