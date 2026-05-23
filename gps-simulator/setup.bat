@@ -1,58 +1,56 @@
 @echo off
-chcp 65001 >nul
 echo ========================================
-echo  iPhone GPS シミュレーター セットアップ
+echo  iPhone GPS Simulator - Setup
 echo ========================================
 echo.
 
-:: Python確認
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [エラー] Python が見つかりません。
-    echo Python 3.10 以上をインストールしてください:
+    echo [ERROR] Python not found.
+    echo Please install Python 3.10 or later:
     echo https://www.python.org/downloads/
     pause
     exit /b 1
 )
-echo [OK] Python が見つかりました:
+echo [OK] Python found:
 python --version
 echo.
 
-:: venv作成
 if exist venv (
-    echo [スキップ] venv はすでに存在します。
+    echo [SKIP] venv already exists.
 ) else (
-    echo [実行] 仮想環境を作成中...
+    echo [RUN] Creating virtual environment...
     python -m venv venv
     if errorlevel 1 (
-        echo [エラー] venv の作成に失敗しました。
+        echo [ERROR] Failed to create venv.
         pause
         exit /b 1
     )
-    echo [OK] venv を作成しました。
+    echo [OK] venv created.
 )
 echo.
 
-:: 依存パッケージインストール
-echo [実行] パッケージをインストール中...
+echo [RUN] Installing packages...
 call venv\Scripts\activate.bat
 pip install --upgrade pip -q
 pip install -r requirements.txt
 if errorlevel 1 (
-    echo [エラー] パッケージのインストールに失敗しました。
+    echo [ERROR] Package installation failed.
     pause
     exit /b 1
 )
+
 echo.
 echo ========================================
-echo  セットアップ完了！
+echo  Setup complete!
 echo ========================================
 echo.
-echo 次のステップ:
-echo  1. 管理者権限のコマンドプロンプトで以下を実行（起動中は閉じないこと）:
+echo Next steps:
+echo  1. Open cmd AS ADMINISTRATOR and run:
 echo     pymobiledevice3 remote tunneld
+echo     (Keep this window open)
 echo.
-echo  2. 別のコマンドプロンプトで start.bat を実行:
+echo  2. In another cmd window run:
 echo     start.bat
 echo.
 pause
