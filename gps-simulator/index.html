@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iPhone GPS シミュレーター</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+
+    #status-bar {
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+    }
+    #status-dot { font-size: 16px; }
+    #status-text { flex: 1; }
+    #device-name { font-size: 12px; color: #888; }
+
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    #map { flex: 1; }
+
+    #panel {
+      width: 320px;
+      background: #16213e;
+      border-left: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 16px;
+      gap: 14px;
+    }
+
+    h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #667eea; margin-bottom: 6px; }
+
+    #search-box {
+      display: flex;
+      gap: 6px;
+    }
+    #search-input {
+      flex: 1;
+      padding: 8px 10px;
+      background: #0f3460;
+      border: 1px solid #1a4a8a;
+      border-radius: 6px;
+      color: #eee;
+      font-size: 13px;
+      outline: none;
+    }
+    #search-input:focus { border-color: #667eea; }
+
+    button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:active { opacity: 0.7; }
+
+    .btn-primary { background: #667eea; color: #fff; }
+    .btn-danger  { background: #e74c3c; color: #fff; }
+    .btn-secondary { background: #0f3460; color: #eee; border: 1px solid #1a4a8a; }
+
+    #presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .preset-btn { background: #0f3460; color: #eee; border: 1px solid #1a4a8a; font-size: 12px; padding: 7px; }
+
+    #coord-form { display: flex; flex-direction: column; gap: 8px; }
+    .coord-row { display: flex; align-items: center; gap: 8px; }
+    .coord-row label { width: 36px; font-size: 13px; color: #aaa; }
+    .coord-row input {
+      flex: 1;
+      padding: 7px 10px;
+      background: #0f3460;
+      border: 1px solid #1a4a8a;
+      border-radius: 6px;
+      color: #eee;
+      font-size: 13px;
+      outline: none;
+    }
+    .coord-row input:focus { border-color: #667eea; }
+
+    #current-coords {
+      background: #0f3460;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    #current-coords span { color: #667eea; font-weight: 700; font-size: 14px; }
+
+    #action-buttons { display: flex; flex-direction: column; gap: 8px; }
+    #btn-set   { background: #27ae60; color: #fff; padding: 12px; font-size: 14px; }
+    #btn-reset { background: #e74c3c; color: #fff; padding: 12px; font-size: 14px; }
+
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #333;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: transform 0.3s ease;
+      z-index: 9999;
+      max-width: 340px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.success { background: #27ae60; }
+    #toast.error   { background: #e74c3c; }
+
+    hr { border: none; border-top: 1px solid #0f3460; }
+  </style>
+</head>
+<body>
+
+<div id="status-bar">
+  <span id="status-dot">🔴</span>
+  <span id="status-text">デバイス未接続</span>
+  <span id="device-name"></span>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+
+  <div id="panel">
+    <div>
+      <h3>住所・地名検索</h3>
+      <div id="search-box">
+        <input id="search-input" type="text" placeholder="例: 渋谷、東京タワー..." />
+        <button class="btn-primary" onclick="searchPlace()">検索</button>
+      </div>
+    </div>
+
+    <hr>
+
+    <div>
+      <h3>プリセット</h3>
+      <div id="presets">
+        <button class="preset-btn" onclick="gotoPreset(35.6762,139.6503,'東京')">🗼 東京</button>
+        <button class="preset-btn" onclick="gotoPreset(34.6937,135.5023,'大阪')">🏯 大阪</button>
+        <button class="preset-btn" onclick="gotoPreset(40.7128,-74.0060,'ニューヨーク')">🗽 ニューヨーク</button>
+        <button class="preset-btn" onclick="gotoPreset(48.8566,2.3522,'パリ')">🗼 パリ</button>
+        <button class="preset-btn" onclick="gotoPreset(51.5074,-0.1278,'ロンドン')">🎡 ロンドン</button>
+        <button class="preset-btn" onclick="gotoPreset(-33.8688,151.2093,'シドニー')">🦘 シドニー</button>
+      </div>
+    </div>
+
+    <hr>
+
+    <div>
+      <h3>座標を直接入力</h3>
+      <div id="coord-form">
+        <div class="coord-row">
+          <label>緯度</label>
+          <input id="input-lat" type="number" step="0.000001" placeholder="35.6762" />
+        </div>
+        <div class="coord-row">
+          <label>経度</label>
+          <input id="input-lng" type="number" step="0.000001" placeholder="139.6503" />
+        </div>
+        <button class="btn-secondary" onclick="applyManualCoords()">座標でピンを移動</button>
+      </div>
+    </div>
+
+    <hr>
+
+    <div>
+      <h3>選択中の位置</h3>
+      <div id="current-coords">
+        地図をクリックするか検索してください
+      </div>
+    </div>
+
+    <hr>
+
+    <div id="action-buttons">
+      <button id="btn-set" onclick="setLocation()">📍 この位置をセット</button>
+      <button id="btn-reset" onclick="resetLocation()">↩️ 位置情報をリセット</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const TOKYO = [35.6762, 139.6503];
+  let selectedLat = null;
+  let selectedLng = null;
+  let marker = null;
+
+  // Map init
+  const map = L.map('map').setView(TOKYO, 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  map.on('click', e => {
+    placePin(e.latlng.lat, e.latlng.lng);
+  });
+
+  function placePin(lat, lng) {
+    selectedLat = lat;
+    selectedLng = lng;
+    if (marker) map.removeLayer(marker);
+    marker = L.marker([lat, lng]).addTo(map)
+      .bindPopup(`${lat.toFixed(6)}, ${lng.toFixed(6)}`).openPopup();
+    document.getElementById('input-lat').value = lat.toFixed(6);
+    document.getElementById('input-lng').value = lng.toFixed(6);
+    document.getElementById('current-coords').innerHTML =
+      `緯度: <span>${lat.toFixed(6)}</span><br>経度: <span>${lng.toFixed(6)}</span>`;
+  }
+
+  function gotoPreset(lat, lng, name) {
+    map.setView([lat, lng], 13);
+    placePin(lat, lng);
+    showToast(`${name} を選択しました`, 'success');
+  }
+
+  function applyManualCoords() {
+    const lat = parseFloat(document.getElementById('input-lat').value);
+    const lng = parseFloat(document.getElementById('input-lng').value);
+    if (isNaN(lat) || isNaN(lng)) { showToast('有効な緯度・経度を入力してください', 'error'); return; }
+    if (lat < -90 || lat > 90) { showToast('緯度は -90〜90 の範囲で入力してください', 'error'); return; }
+    if (lng < -180 || lng > 180) { showToast('経度は -180〜180 の範囲で入力してください', 'error'); return; }
+    map.setView([lat, lng], 13);
+    placePin(lat, lng);
+  }
+
+  async function searchPlace() {
+    const q = document.getElementById('search-input').value.trim();
+    if (!q) return;
+    showToast('検索中...', '');
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
+      const res = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
+      const data = await res.json();
+      if (!data.length) { showToast('場所が見つかりませんでした', 'error'); return; }
+      const { lat, lon, display_name } = data[0];
+      map.setView([+lat, +lon], 14);
+      placePin(+lat, +lon);
+      showToast(`${display_name.split(',')[0]} を表示`, 'success');
+    } catch (e) {
+      showToast('検索に失敗しました', 'error');
+    }
+  }
+
+  document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') searchPlace();
+  });
+
+  async function setLocation() {
+    if (selectedLat === null) { showToast('まず地図上の位置を選んでください', 'error'); return; }
+    try {
+      const res = await fetch('/api/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: selectedLat, lng: selectedLng })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || '不明なエラー');
+      showToast(data.message, 'success');
+    } catch (e) {
+      showToast(`エラー: ${e.message}`, 'error');
+    }
+  }
+
+  async function resetLocation() {
+    try {
+      const res = await fetch('/api/location/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || '不明なエラー');
+      showToast(data.message, 'success');
+    } catch (e) {
+      showToast(`エラー: ${e.message}`, 'error');
+    }
+  }
+
+  // Device status polling
+  async function pollDevice() {
+    try {
+      const res = await fetch('/api/device');
+      const data = await res.json();
+      const dot  = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      const name = document.getElementById('device-name');
+      if (data.connected && data.devices.length) {
+        dot.textContent  = '🟢';
+        text.textContent = 'デバイス接続中';
+        name.textContent = data.devices[0].name || data.devices[0].udid;
+      } else {
+        dot.textContent  = '🔴';
+        text.textContent = 'デバイス未接続';
+        name.textContent = '';
+      }
+    } catch (_) { /* サーバー起動前は無視 */ }
+  }
+
+  pollDevice();
+  setInterval(pollDevice, 5000);
+
+  // Toast
+  let toastTimer = null;
+  function showToast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `show ${type}`;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+  }
+</script>
+</body>
+</html>
