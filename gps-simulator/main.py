@@ -74,9 +74,13 @@ def _run(args: list[str], timeout: int = 30) -> str:
 
 
 def _run_rsd(args: list[str], timeout: int = 30) -> str:
-    """Run a command via the RSD tunnel (iOS 17+)."""
+    """Run a developer command via the RSD tunnel (iOS 17+).
+
+    Correct form: pymobiledevice3 developer --rsd HOST PORT dvt ...
+    args should be the part after 'developer', e.g. ['dvt', 'simulate-location', ...]
+    """
     host, port = _get_rsd()
-    return _run(["--rsd", host, str(port)] + args, timeout=timeout)
+    return _run(["developer", "--rsd", host, str(port)] + args, timeout=timeout)
 
 
 @app.get("/")
@@ -119,9 +123,10 @@ async def set_location(req: LocationRequest):
     errors = []
 
     # iOS 17+: via RSD tunnel
+    # _run_rsd prepends ["developer", "--rsd", host, port]
     try:
         _run_rsd([
-            "developer", "dvt", "simulate-location", "set",
+            "dvt", "simulate-location", "set",
             "--", str(req.lat), str(req.lng),
         ])
         return {
@@ -156,7 +161,7 @@ async def reset_location():
     errors = []
 
     try:
-        _run_rsd(["developer", "dvt", "simulate-location", "clear"])
+        _run_rsd(["dvt", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
         errors.append(f"RSD: {e}")
