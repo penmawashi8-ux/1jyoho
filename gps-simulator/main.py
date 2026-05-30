@@ -18,7 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TUNNELD_PORT = 49151  # default tunneld HTTP port
+TUNNELD_PORT = 49151
 
 
 class LocationRequest(BaseModel):
@@ -36,22 +36,16 @@ def _cli_path() -> str:
 
 
 def _get_tunnels() -> dict:
-    """Query the tunneld HTTP server for active tunnels."""
     url = f"http://127.0.0.1:{TUNNELD_PORT}/"
     with urllib.request.urlopen(url, timeout=3) as resp:
         return json.loads(resp.read())
 
 
 def _get_rsd() -> tuple[str, int]:
-    """Return (rsd_address, rsd_port) from the first active tunnel.
-
-    tunneld HTTP response format:
-      {"UDID": [{"tunnel-address": "...", "tunnel-port": 12345, ...}]}
-    """
     tunnels = _get_tunnels()
     if not tunnels:
         raise RuntimeError("tunneld にアクティブなトンネルがありません。iPhoneをUSBで接続してください。")
-    tunnel_list = next(iter(tunnels.values()))  # list for first UDID
+    tunnel_list = next(iter(tunnels.values()))
     if not tunnel_list:
         raise RuntimeError("トンネル情報が空です。")
     t = tunnel_list[0]
@@ -74,13 +68,53 @@ def _run(args: list[str], timeout: int = 30) -> str:
 
 
 def _run_rsd(args: list[str], timeout: int = 30) -> str:
-    """Run a developer command via the RSD tunnel (iOS 17+).
-
-    Correct form: pymobiledevice3 developer --rsd HOST PORT dvt ...
-    args should be the part after 'developer', e.g. ['dvt', 'simulate-location', ...]
-    """
+    """pymobiledevice3 developer --rsd HOST PORT <args>"""
     host, port = _get_rsd()
     return _run(["developer", "--rsd", host, str(port)] + args, timeout=timeout)
+
+
+async def _set_via_dt_simulate(lat: float, lng: float):
+    """
+    DtSimulateLocation: uses com.apple.dt.simulatelocation lockdown service.
+    Does NOT go through DVT, so may work without Developer Mode.
+    """
+    from pymobiledevice3.services.simulate_location import DtSimulateLocation
+
+    host, port = _get_rsd()
+    # iOS 17+: connect via RSD
+    try:
+        from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+        async with RemoteServiceDiscoveryService((host, port)) as rsd:
+            async with DtSimulateLocation(rsd) as sim:
+                sim.set(lat, lng)
+        return
+    except Exception:
+        pass
+
+    # iOS 16 and below: connect via usbmux
+    from pymobiledevice3.lockdown import create_using_usbmux
+    lockdown = create_using_usbmux()
+    async with DtSimulateLocation(lockdown) as sim:
+        sim.set(lat, lng)
+
+
+async def _reset_via_dt_simulate():
+    from pymobiledevice3.services.simulate_location import DtSimulateLocation
+
+    host, port = _get_rsd()
+    try:
+        from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+        async with RemoteServiceDiscoveryService((host, port)) as rsd:
+            async with DtSimulateLocation(rsd) as sim:
+                sim.clear()
+        return
+    except Exception:
+        pass
+
+    from pymobiledevice3.lockdown import create_using_usbmux
+    lockdown = create_using_usbmux()
+    async with DtSimulateLocation(lockdown) as sim:
+        sim.clear()
 
 
 @app.get("/")
@@ -90,7 +124,6 @@ async def index():
 
 @app.get("/api/device")
 async def get_device_list():
-    # iOS 17+: query tunneld HTTP server
     try:
         tunnels = _get_tunnels()
         if tunnels:
@@ -99,7 +132,6 @@ async def get_device_list():
     except Exception:
         pass
 
-    # iOS 16 and below: usbmux
     try:
         from pymobiledevice3.usbmux import list_devices
         devices = list_devices()
@@ -122,13 +154,9 @@ async def get_device_list():
 async def set_location(req: LocationRequest):
     errors = []
 
-    # iOS 17+: via RSD tunnel
-    # _run_rsd prepends ["developer", "--rsd", host, port]
+    # Method 1: DtSimulateLocation (no Developer Mode required)
     try:
-        _run_rsd([
-            "dvt", "simulate-location", "set",
-            "--", str(req.lat), str(req.lng),
-        ])
+        await _set_via_dt_simulate(req.lat, req.lng)
         return {
             "success": True,
             "lat": req.lat,
@@ -136,14 +164,11 @@ async def set_location(req: LocationRequest):
             "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
         }
     except Exception as e:
-        errors.append(f"RSD: {e}")
+        errors.append(f"DtSimulate: {e}")
 
-    # iOS 16 and below: no RSD
+    # Method 2: DVT via RSD (requires Developer Mode, iOS 17+)
     try:
-        _run([
-            "developer", "dvt", "simulate-location", "set",
-            "--", str(req.lat), str(req.lng),
-        ])
+        _run_rsd(["dvt", "simulate-location", "set", "--", str(req.lat), str(req.lng)])
         return {
             "success": True,
             "lat": req.lat,
@@ -151,7 +176,19 @@ async def set_location(req: LocationRequest):
             "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
         }
     except Exception as e:
-        errors.append(f"usbmux: {e}")
+        errors.append(f"DVT-RSD: {e}")
+
+    # Method 3: DVT via usbmux (requires Developer Mode, iOS 16 and below)
+    try:
+        _run(["developer", "dvt", "simulate-location", "set", "--", str(req.lat), str(req.lng)])
+        return {
+            "success": True,
+            "lat": req.lat,
+            "lng": req.lng,
+            "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
+        }
+    except Exception as e:
+        errors.append(f"DVT-usbmux: {e}")
 
     raise HTTPException(status_code=500, detail=" / ".join(errors))
 
@@ -161,15 +198,21 @@ async def reset_location():
     errors = []
 
     try:
+        await _reset_via_dt_simulate()
+        return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
+    except Exception as e:
+        errors.append(f"DtSimulate: {e}")
+
+    try:
         _run_rsd(["dvt", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
-        errors.append(f"RSD: {e}")
+        errors.append(f"DVT-RSD: {e}")
 
     try:
         _run(["developer", "dvt", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
-        errors.append(f"usbmux: {e}")
+        errors.append(f"DVT-usbmux: {e}")
 
     raise HTTPException(status_code=500, detail=" / ".join(errors))
