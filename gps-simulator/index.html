@@ -307,7 +307,7 @@
       } else {
         dot.textContent  = '🔴';
         text.textContent = 'デバイス未接続';
-        name.textContent = '';
+        name.textContent = data.message || '';
       }
     } catch (_) { /* サーバー起動前は無視 */ }
   }

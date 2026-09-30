@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 echo ========================================
 echo  iPhone GPS Simulator - Setup
 echo ========================================
@@ -45,12 +46,7 @@ echo ========================================
 echo  Setup complete!
 echo ========================================
 echo.
-echo Next steps:
-echo  1. Open cmd AS ADMINISTRATOR and run:
-echo     pymobiledevice3 remote tunneld
-echo     (Keep this window open)
-echo.
-echo  2. In another cmd window run:
-echo     start.bat
+if /i "%~1"=="/nopause" exit /b 0
+echo Next step: double-click start.bat
 echo.
 pause
