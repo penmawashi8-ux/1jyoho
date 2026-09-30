@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import urllib.request
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -9,7 +10,66 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent
+TUNNELD_PORT = 49151
+TUNNELD_LOG = BASE_DIR / "tunneld.log"
+
+_tunneld_proc: subprocess.Popen | None = None
+
+
+def _tunneld_running() -> bool:
+    try:
+        _get_tunnels()
+        return True
+    except Exception:
+        return False
+
+
+def _start_tunneld():
+    """tunneld が未起動ならバックグラウンドで起動する（管理者権限が必要）"""
+    global _tunneld_proc
+    if _tunneld_running():
+        return
+    log = open(TUNNELD_LOG, "w", encoding="utf-8", errors="replace")
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    _tunneld_proc = subprocess.Popen(
+        [_cli_path(), "remote", "tunneld"],
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        creationflags=flags,
+    )
+
+
+def _stop_tunneld():
+    global _tunneld_proc
+    if _tunneld_proc and _tunneld_proc.poll() is None:
+        _tunneld_proc.terminate()
+        try:
+            _tunneld_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _tunneld_proc.kill()
+    _tunneld_proc = None
+
+
+def _tunneld_error() -> str | None:
+    """自動起動した tunneld が異常終了していればログ末尾を返す"""
+    if _tunneld_proc is None or _tunneld_proc.poll() is None:
+        return None
+    try:
+        tail = TUNNELD_LOG.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-3:]
+    except Exception:
+        tail = []
+    return "tunneld が停止しました（管理者権限で起動しましたか？） " + " ".join(tail)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _start_tunneld()
+    yield
+    _stop_tunneld()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,9 +77,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-TUNNELD_PORT = 49151
-
 
 class LocationRequest(BaseModel):
     lat: float
@@ -119,7 +176,7 @@ async def _reset_via_dt_simulate():
 
 @app.get("/")
 async def index():
-    return FileResponse("index.html")
+    return FileResponse(BASE_DIR / "index.html")
 
 
 @app.get("/api/device")
@@ -146,7 +203,8 @@ async def get_device_list():
     return {
         "connected": False,
         "devices": [],
-        "message": "デバイスが見つかりません。iPhoneをUSBで接続しtunneldが起動中か確認してください。",
+        "message": _tunneld_error()
+        or "デバイスが見つかりません。iPhoneをUSBで接続し、ロックを解除してください。",
     }
 
 
