@@ -2,6 +2,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
 import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,8 +15,11 @@ from pydantic import BaseModel
 BASE_DIR = Path(__file__).resolve().parent
 TUNNELD_PORT = 49151
 TUNNELD_LOG = BASE_DIR / "tunneld.log"
+LOCATION_LOG = BASE_DIR / "location.log"
 
 _tunneld_proc: subprocess.Popen | None = None
+# iOS 17+ の DVT 位置シミュレーションは接続している間だけ有効なので、プロセスを生かし続ける
+_location_proc: subprocess.Popen | None = None
 
 
 def _tunneld_running() -> bool:
@@ -67,6 +71,7 @@ def _tunneld_error() -> str | None:
 async def lifespan(_app: FastAPI):
     _start_tunneld()
     yield
+    _stop_location_proc()
     _stop_tunneld()
 
 
@@ -312,6 +317,65 @@ async def _location_error_detail(errors: list[str]) -> str:
     return f"{hint} [詳細] {detail}" if hint else detail
 
 
+def _start_location_proc(args: list[str], timeout: int = 60):
+    """
+    pymobiledevice3 developer dvt simulate-location set は位置をセットした後
+    「Press ENTER to exit」で待機し、終了すると位置が元に戻る。
+    そのためバックグラウンドで起動したまま保持し、待機状態に入ったら成功とみなす。
+    """
+    global _location_proc
+    _stop_location_proc()
+    log = open(LOCATION_LOG, "w", encoding="utf-8", errors="replace")
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    proc = subprocess.Popen(
+        [_cli_path()] + args,
+        stdin=subprocess.PIPE,  # 何も書き込まないので ENTER 待ちのまま止まる
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        creationflags=flags,
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        out = LOCATION_LOG.read_text(encoding="utf-8", errors="replace")
+        if "Press" in out:
+            _location_proc = proc
+            return
+        if proc.poll() is not None:
+            raise RuntimeError(out.strip() or f"exit code {proc.returncode}")
+        time.sleep(0.3)
+    proc.kill()
+    raise RuntimeError("タイムアウトしました: " + LOCATION_LOG.read_text(encoding="utf-8", errors="replace").strip()[-300:])
+
+
+def _stop_location_proc():
+    global _location_proc
+    proc, _location_proc = _location_proc, None
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.stdin.write(b"\n")  # Windows: ENTER で正常終了させる
+        proc.stdin.flush()
+        proc.wait(timeout=5)
+        return
+    except Exception:
+        pass
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _dvt_set_args(lat: float, lng: float) -> list[str]:
+    args = ["developer", "dvt", "simulate-location", "set"]
+    try:
+        host, port = _get_rsd()
+        args += ["--rsd", host, str(port)]  # "--" より前に置く（後ろだと座標扱いになる）
+    except Exception:
+        pass  # CLI が tunneld を自動で探す
+    return _with_coords(args, lat, lng)
+
+
 @app.post("/api/location")
 async def set_location(req: LocationRequest):
     errors = []
@@ -328,21 +392,19 @@ async def set_location(req: LocationRequest):
     except Exception as e:
         errors.append(f"DtSimulate: {e}")
 
-    # Method 2: DVT via RSD (requires Developer Mode, iOS 17+)
+    # Method 2: DVT (requires Developer Mode, iOS 17+). プロセスを保持し続ける
     try:
-        await asyncio.to_thread(
-            _run_rsd, _with_coords(["developer", "dvt", "simulate-location", "set"], req.lat, req.lng)
-        )
+        await asyncio.to_thread(_start_location_proc, _dvt_set_args(req.lat, req.lng))
         return {
             "success": True,
             "lat": req.lat,
             "lng": req.lng,
-            "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
+            "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}（このウィンドウを閉じると元に戻ります）",
         }
     except Exception as e:
-        errors.append(f"DVT-RSD: {e}")
+        errors.append(f"DVT: {e}")
 
-    # Method 3: DVT via usbmux (requires Developer Mode, iOS 16 and below)
+    # Method 3: iOS 16 and below
     try:
         await asyncio.to_thread(
             _run, _with_coords(["developer", "simulate-location", "set"], req.lat, req.lng)
@@ -354,7 +416,7 @@ async def set_location(req: LocationRequest):
             "message": f"位置を設定しました: {req.lat:.6f}, {req.lng:.6f}",
         }
     except Exception as e:
-        errors.append(f"DVT-usbmux: {e}")
+        errors.append(f"iOS16: {e}")
 
     raise HTTPException(status_code=500, detail=await _location_error_detail(errors))
 
@@ -362,6 +424,10 @@ async def set_location(req: LocationRequest):
 @app.post("/api/location/reset")
 async def reset_location():
     errors = []
+
+    if _location_proc is not None and _location_proc.poll() is None:
+        await asyncio.to_thread(_stop_location_proc)
+        return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
 
     try:
         await _reset_via_dt_simulate()
