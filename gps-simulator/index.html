@@ -22,6 +22,8 @@
     #status-dot { font-size: 16px; }
     #status-text { flex: 1; }
     #device-name { font-size: 12px; color: #888; }
+    #devmode-text { font-size: 12px; }
+    #btn-devmode { font-size: 12px; padding: 6px 10px; }
 
     #main { display: flex; flex: 1; overflow: hidden; }
 
@@ -133,6 +135,8 @@
   <span id="status-dot">🔴</span>
   <span id="status-text">デバイス未接続</span>
   <span id="device-name"></span>
+  <span id="devmode-text"></span>
+  <button id="btn-devmode" class="btn-secondary" style="display:none" onclick="enableDeveloperMode()">🛠 デベロッパーモードを有効化</button>
 </div>
 
 <div id="main">
@@ -292,6 +296,42 @@
     }
   }
 
+  // Developer Mode
+  let devModeChecked = false;
+  async function checkDeveloperMode() {
+    const text = document.getElementById('devmode-text');
+    const btn  = document.getElementById('btn-devmode');
+    try {
+      const res = await fetch('/api/developer-mode');
+      const data = await res.json();
+      if (data.enabled === true) {
+        text.textContent = '🛠 デベロッパーモード: ON';
+        btn.style.display = 'none';
+      } else {
+        text.textContent = data.enabled === false ? '⚠️ デベロッパーモード: OFF' : '';
+        btn.style.display = '';
+      }
+      devModeChecked = true;
+    } catch (_) { /* 次回のポーリングで再試行 */ }
+  }
+
+  async function enableDeveloperMode() {
+    const btn = document.getElementById('btn-devmode');
+    btn.disabled = true;
+    showToast('処理中...（iPhoneが再起動する場合があります）', '', 120000);
+    try {
+      const res = await fetch('/api/developer-mode/enable', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || '不明なエラー');
+      showToast(data.message, data.success ? 'success' : '', 12000);
+    } catch (e) {
+      showToast(`エラー: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      devModeChecked = false;
+    }
+  }
+
   // Device status polling
   async function pollDevice() {
     try {
@@ -304,7 +344,11 @@
         dot.textContent  = '🟢';
         text.textContent = 'デバイス接続中';
         name.textContent = data.devices[0].name || data.devices[0].udid;
+        if (!devModeChecked) checkDeveloperMode();
       } else {
+        devModeChecked = false;
+        document.getElementById('devmode-text').textContent = '';
+        document.getElementById('btn-devmode').style.display = 'none';
         dot.textContent  = '🔴';
         text.textContent = 'デバイス未接続';
         name.textContent = data.message || '';
@@ -317,12 +361,12 @@
 
   // Toast
   let toastTimer = null;
-  function showToast(msg, type) {
+  function showToast(msg, type, duration = 3000) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.className = `show ${type}`;
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+    toastTimer = setTimeout(() => { el.className = ''; }, duration);
   }
 </script>
 </body>

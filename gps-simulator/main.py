@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import sys
@@ -125,53 +126,62 @@ def _run(args: list[str], timeout: int = 30) -> str:
 
 
 def _run_rsd(args: list[str], timeout: int = 30) -> str:
-    """pymobiledevice3 developer --rsd HOST PORT <args>"""
+    """pymobiledevice3 <args> --rsd HOST PORT（--rsd はサブコマンドの後ろに付ける）"""
     host, port = _get_rsd()
-    return _run(["developer", "--rsd", host, str(port)] + args, timeout=timeout)
+    return _run(args + ["--rsd", host, str(port)], timeout=timeout)
 
 
-async def _set_via_dt_simulate(lat: float, lng: float):
+def _with_coords(args: list[str], lat: float, lng: float) -> list[str]:
+    return args + ["--", str(lat), str(lng)]
+
+
+async def _dt_simulate(action):
     """
     DtSimulateLocation: uses com.apple.dt.simulatelocation lockdown service.
     Does NOT go through DVT, so may work without Developer Mode.
     """
     from pymobiledevice3.services.simulate_location import DtSimulateLocation
 
-    host, port = _get_rsd()
+    errors = []
     # iOS 17+: connect via RSD
     try:
         from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-        async with RemoteServiceDiscoveryService((host, port)) as rsd:
-            async with DtSimulateLocation(rsd) as sim:
-                sim.set(lat, lng)
+        async with RemoteServiceDiscoveryService(_get_rsd()) as rsd:
+            await action(DtSimulateLocation(rsd))
         return
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append(f"RSD: {e}")
 
     # iOS 16 and below: connect via usbmux
-    from pymobiledevice3.lockdown import create_using_usbmux
-    lockdown = create_using_usbmux()
-    async with DtSimulateLocation(lockdown) as sim:
-        sim.set(lat, lng)
+    try:
+        from pymobiledevice3.lockdown import create_using_usbmux
+        lockdown = await create_using_usbmux()
+        await action(DtSimulateLocation(lockdown))
+        return
+    except Exception as e:
+        errors.append(f"usbmux: {e}")
+
+    raise RuntimeError(", ".join(errors))
+
+
+async def _set_via_dt_simulate(lat: float, lng: float):
+    async def action(sim):
+        await sim.set(lat, lng)
+    await _dt_simulate(action)
 
 
 async def _reset_via_dt_simulate():
-    from pymobiledevice3.services.simulate_location import DtSimulateLocation
+    async def action(sim):
+        await sim.clear()
+    await _dt_simulate(action)
 
-    host, port = _get_rsd()
-    try:
-        from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-        async with RemoteServiceDiscoveryService((host, port)) as rsd:
-            async with DtSimulateLocation(rsd) as sim:
-                sim.clear()
-        return
-    except Exception:
-        pass
 
-    from pymobiledevice3.lockdown import create_using_usbmux
-    lockdown = create_using_usbmux()
-    async with DtSimulateLocation(lockdown) as sim:
-        sim.clear()
+async def _list_usbmux_devices():
+    from pymobiledevice3.usbmux import list_devices
+    devices = list_devices()
+    if asyncio.iscoroutine(devices):  # pymobiledevice3 の新しい版では async
+        devices = await devices
+    return devices
 
 
 @app.get("/")
@@ -190,8 +200,7 @@ async def get_device_list():
         pass
 
     try:
-        from pymobiledevice3.usbmux import list_devices
-        devices = list_devices()
+        devices = await _list_usbmux_devices()
         if devices:
             return {
                 "connected": True,
@@ -206,6 +215,46 @@ async def get_device_list():
         "message": _tunneld_error()
         or "デバイスが見つかりません。iPhoneをUSBで接続し、ロックを解除してください。",
     }
+
+
+@app.get("/api/developer-mode")
+async def developer_mode_status():
+    try:
+        out = await asyncio.to_thread(_run, ["amfi", "developer-mode-status"], 15)
+        return {"enabled": "true" in out.lower()}
+    except Exception as e:
+        return {"enabled": None, "message": str(e)}
+
+
+@app.post("/api/developer-mode/enable")
+async def enable_developer_mode():
+    """
+    設定アプリにデベロッパーモードが表示されない iPhone 向け。
+    1. reveal: 「設定 > プライバシーとセキュリティ」にデベロッパーモードの項目を出す
+    2. enable: パスコード未設定なら自動で有効化（iPhone が再起動する）
+    """
+    try:
+        await asyncio.to_thread(_run, ["amfi", "reveal-developer-mode"], 30)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"メニューの表示に失敗しました: {e}")
+
+    try:
+        # 再起動を待つので長めのタイムアウト
+        await asyncio.to_thread(_run, ["amfi", "enable-developer-mode"], 300)
+        return {
+            "success": True,
+            "revealed": True,
+            "message": "デベロッパーモードを有効にしました。再起動後に確認ダイアログが出たら「オンにする」をタップしてください。",
+        }
+    except Exception as e:
+        if "passcode" in str(e).lower():
+            message = (
+                "デベロッパーモードの項目を表示させました。iPhoneの「設定」→「プライバシーとセキュリティ」→"
+                "「デベロッパーモード」をONにして再起動してください。"
+            )
+        else:
+            message = f"項目を表示させました。設定から手動でONにしてください（自動有効化エラー: {e}）"
+        return {"success": False, "revealed": True, "message": message}
 
 
 @app.post("/api/location")
@@ -226,7 +275,9 @@ async def set_location(req: LocationRequest):
 
     # Method 2: DVT via RSD (requires Developer Mode, iOS 17+)
     try:
-        _run_rsd(["dvt", "simulate-location", "set", "--", str(req.lat), str(req.lng)])
+        await asyncio.to_thread(
+            _run_rsd, _with_coords(["developer", "dvt", "simulate-location", "set"], req.lat, req.lng)
+        )
         return {
             "success": True,
             "lat": req.lat,
@@ -238,7 +289,9 @@ async def set_location(req: LocationRequest):
 
     # Method 3: DVT via usbmux (requires Developer Mode, iOS 16 and below)
     try:
-        _run(["developer", "dvt", "simulate-location", "set", "--", str(req.lat), str(req.lng)])
+        await asyncio.to_thread(
+            _run, _with_coords(["developer", "simulate-location", "set"], req.lat, req.lng)
+        )
         return {
             "success": True,
             "lat": req.lat,
@@ -262,13 +315,13 @@ async def reset_location():
         errors.append(f"DtSimulate: {e}")
 
     try:
-        _run_rsd(["dvt", "simulate-location", "clear"])
+        await asyncio.to_thread(_run_rsd, ["developer", "dvt", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
         errors.append(f"DVT-RSD: {e}")
 
     try:
-        _run(["developer", "dvt", "simulate-location", "clear"])
+        await asyncio.to_thread(_run, ["developer", "simulate-location", "clear"])
         return {"success": True, "message": "位置情報シミュレーションを解除しました。"}
     except Exception as e:
         errors.append(f"DVT-usbmux: {e}")
