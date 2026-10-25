@@ -136,7 +136,7 @@
   <span id="status-text">デバイス未接続</span>
   <span id="device-name"></span>
   <span id="devmode-text"></span>
-  <button id="btn-devmode" class="btn-secondary" style="display:none" onclick="enableDeveloperMode()">🛠 デベロッパーモードを有効化</button>
+  <button id="btn-devmode" class="btn-secondary" onclick="enableDeveloperMode()">🛠 デベロッパーモードを有効化</button>
 </div>
 
 <div id="main">
@@ -281,7 +281,7 @@
       if (!res.ok) throw new Error(data.detail || '不明なエラー');
       showToast(data.message, 'success');
     } catch (e) {
-      showToast(`エラー: ${e.message}`, 'error');
+      showToast(`エラー: ${e.message}`, 'error', 10000);
     }
   }
 
@@ -346,9 +346,10 @@
         name.textContent = data.devices[0].name || data.devices[0].udid;
         if (!devModeChecked) checkDeveloperMode();
       } else {
+        // 未接続の原因がデベロッパーモードOFFのことが多いので、ボタンは出したままにする
         devModeChecked = false;
         document.getElementById('devmode-text').textContent = '';
-        document.getElementById('btn-devmode').style.display = 'none';
+        document.getElementById('btn-devmode').style.display = '';
         dot.textContent  = '🔴';
         text.textContent = 'デバイス未接続';
         name.textContent = data.message || '';

@@ -295,6 +295,23 @@ async def enable_developer_mode():
         return {"success": False, "revealed": True, "message": message}
 
 
+async def _location_error_detail(errors: list[str]) -> str:
+    """失敗理由のうち、ユーザーが対処できるものを先頭に出す"""
+    hint = _tunneld_error()
+    if hint is None:
+        try:
+            out = await asyncio.to_thread(_run, ["amfi", "developer-mode-status"], 15)
+            if "false" in out.lower():
+                hint = (
+                    "iPhoneのデベロッパーモードがOFFです。画面上部の「🛠 デベロッパーモードを有効化」を"
+                    "押してONにしてください（OFFだとiOS 17以降はPCとの通信路が作れません）。"
+                )
+        except Exception:
+            pass
+    detail = " / ".join(errors)
+    return f"{hint} [詳細] {detail}" if hint else detail
+
+
 @app.post("/api/location")
 async def set_location(req: LocationRequest):
     errors = []
@@ -339,7 +356,7 @@ async def set_location(req: LocationRequest):
     except Exception as e:
         errors.append(f"DVT-usbmux: {e}")
 
-    raise HTTPException(status_code=500, detail=" / ".join(errors))
+    raise HTTPException(status_code=500, detail=await _location_error_detail(errors))
 
 
 @app.post("/api/location/reset")
@@ -364,4 +381,4 @@ async def reset_location():
     except Exception as e:
         errors.append(f"DVT-usbmux: {e}")
 
-    raise HTTPException(status_code=500, detail=" / ".join(errors))
+    raise HTTPException(status_code=500, detail=await _location_error_detail(errors))
