@@ -189,8 +189,30 @@ async def index():
     return FileResponse(BASE_DIR / "index.html")
 
 
+def _usbmuxd_reachable() -> bool:
+    """Windows では Apple Mobile Device Service が 127.0.0.1:27015 で待ち受けている"""
+    if sys.platform != "win32":
+        return True
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 27015), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def _list_devices_cli() -> list[str]:
+    out = _run(["usbmux", "list", "--simple"], timeout=15)
+    try:
+        data = json.loads(out)
+        return [d if isinstance(d, str) else d.get("UniqueDeviceID", "") for d in data]
+    except ValueError:
+        return [line.strip() for line in out.splitlines() if len(line.strip()) >= 24 and " " not in line.strip()]
+
+
 @app.get("/api/device")
 async def get_device_list():
+    errors = []
     try:
         tunnels = _get_tunnels()
         if tunnels:
@@ -206,15 +228,31 @@ async def get_device_list():
                 "connected": True,
                 "devices": [{"udid": d.serial, "name": d.serial} for d in devices],
             }
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append(f"usbmux: {e}")
 
-    return {
-        "connected": False,
-        "devices": [],
-        "message": _tunneld_error()
-        or "デバイスが見つかりません。iPhoneをUSBで接続し、ロックを解除してください。",
-    }
+    # ライブラリのバージョン差異に備えて CLI でも確認
+    try:
+        udids = await asyncio.to_thread(_list_devices_cli)
+        if udids:
+            return {"connected": True, "devices": [{"udid": u, "name": u} for u in udids]}
+    except Exception as e:
+        lines = [l for l in str(e).splitlines() if "ERROR" in l] or str(e).splitlines()[-1:]
+        errors.append("cli: " + " ".join(l.split("ERROR", 1)[-1].strip() for l in lines))
+
+    if not _usbmuxd_reachable():
+        message = (
+            "Apple Mobile Device Service に接続できません。Microsoft Store の「Apple Devices」"
+            "（または iTunes）をインストールして一度起動し、PCを再起動してください。"
+        )
+    else:
+        message = _tunneld_error() or (
+            "デバイスが見つかりません。USBケーブルを挿し直し、iPhoneのロックを解除して"
+            "「このコンピュータを信頼」をタップしてください。"
+        )
+    if errors:
+        message += " [詳細] " + " / ".join(errors)
+    return {"connected": False, "devices": [], "message": message}
 
 
 @app.get("/api/developer-mode")
