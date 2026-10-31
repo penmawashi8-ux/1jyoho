@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import subprocess
 import sys
 import time
@@ -18,6 +19,8 @@ TUNNELD_LOG = BASE_DIR / "tunneld.log"
 LOCATION_LOG = BASE_DIR / "location.log"
 
 _tunneld_proc: subprocess.Popen | None = None
+_ddi_mounted = False
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # iOS 17+ の DVT 位置シミュレーションは接続している間だけ有効なので、プロセスを生かし続ける
 _location_proc: subprocess.Popen | None = None
 
@@ -124,7 +127,7 @@ def _run(args: list[str], timeout: int = 30) -> str:
         encoding="utf-8",
         errors="replace",
     )
-    out = (result.stdout + result.stderr).strip()
+    out = _ANSI_RE.sub("", result.stdout + result.stderr).strip()
     if result.returncode != 0:
         raise RuntimeError(out or f"exit code {result.returncode}")
     return out
@@ -336,7 +339,7 @@ def _start_location_proc(args: list[str], timeout: int = 60):
     )
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        out = LOCATION_LOG.read_text(encoding="utf-8", errors="replace")
+        out = _ANSI_RE.sub("", LOCATION_LOG.read_text(encoding="utf-8", errors="replace"))
         if "Press" in out:
             _location_proc = proc
             return
@@ -366,6 +369,19 @@ def _stop_location_proc():
         proc.kill()
 
 
+def _ensure_ddi_mounted():
+    """
+    iOS 17+ の DVT は Developer Disk Image（Personalized）がマウントされていないと
+    「Failed to start service」になる。Xcode なら自動でやってくれる処理を代わりに行う。
+    初回はイメージのダウンロードが入るので時間がかかる。マウント済みなら即成功する。
+    """
+    global _ddi_mounted
+    if _ddi_mounted:
+        return
+    _run(["mounter", "auto-mount"], timeout=300)
+    _ddi_mounted = True
+
+
 def _dvt_set_args(lat: float, lng: float) -> list[str]:
     args = ["developer", "dvt", "simulate-location", "set"]
     try:
@@ -393,6 +409,10 @@ async def set_location(req: LocationRequest):
         errors.append(f"DtSimulate: {e}")
 
     # Method 2: DVT (requires Developer Mode, iOS 17+). プロセスを保持し続ける
+    try:
+        await asyncio.to_thread(_ensure_ddi_mounted)
+    except Exception as e:
+        errors.append(f"DDIマウント: {e}")
     try:
         await asyncio.to_thread(_start_location_proc, _dvt_set_args(req.lat, req.lng))
         return {
