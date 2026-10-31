@@ -65,7 +65,9 @@ def build(edition: str, version: str) -> Path:
                 continue
             z.write(p, f"{TOP}/{rel.as_posix()}")
         z.write(ROOT / "LICENSE", f"{TOP}/LICENSE")
-        z.writestr(f"{TOP}/LICENSE-ja.txt", LICENSE_NOTE.format(holder=COPYRIGHT_HOLDER))
+        # メモ帳で文字化けしないよう BOM 付き UTF-8・CRLF にする
+        note = LICENSE_NOTE.format(holder=COPYRIGHT_HOLDER).replace("\n", "\r\n")
+        z.writestr(f"{TOP}/LICENSE-ja.txt", note.encode("utf-8-sig"))
         if edition == "check":
             z.writestr(f"{TOP}/edition.txt", "check\n")
     return out
