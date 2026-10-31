@@ -38,6 +38,16 @@ call venv\Scripts\activate.bat
 
 rem --- No automatic update (use after rollback.bat)
 
+rem --- Another LocaTester (e.g. the check edition) is still running: the browser would show that one
+python -c "import socket,sys; s=socket.socket(); sys.exit(1 if s.connect_ex(('127.0.0.1', 8000)) == 0 else 0)"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] LocaTester is already running in another window ^(port 8000 is in use^).
+    echo   Close the other black LocaTester window first, then double-click start.bat again.
+    pause
+    exit /b 1
+)
+
 echo [INFO] Starting server at http://localhost:8000
 echo [INFO] tunneld is started automatically in the background.
 echo [INFO] Close this window (or press Ctrl+C) to stop everything.
