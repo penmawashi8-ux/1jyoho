@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>iPhone GPS シミュレーター</title>
+  <title>LocaTester - 位置情報テストツール</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -137,7 +137,7 @@
   <span id="device-name"></span>
   <span id="devmode-text"></span>
   <button id="btn-devmode" class="btn-secondary" onclick="enableDeveloperMode()">🛠 デベロッパーモードを有効化</button>
-  <span id="app-version" style="font-size:11px;color:#666">v2026.11.01</span>
+  <span id="app-version" style="font-size:11px;color:#666"></span>
 </div>
 
 <div id="main">
@@ -358,6 +358,18 @@
       }
     } catch (_) { /* サーバー起動前は無視 */ }
   }
+
+  // 製品名・バージョン・エディション
+  (async () => {
+    try {
+      const info = await (await fetch('/api/info')).json();
+      const label = info.edition === 'check' ? '動作チェック版' : '';
+      document.getElementById('app-version').textContent = `${info.product} v${info.version} ${label}`;
+      if (info.edition === 'check') {
+        document.getElementById('btn-set').textContent = '✅ 動作チェック（位置は変わりません）';
+      }
+    } catch (_) { /* 古いサーバー */ }
+  })();
 
   pollDevice();
   setInterval(pollDevice, 5000);

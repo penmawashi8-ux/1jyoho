@@ -14,6 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
+PRODUCT_NAME = "LocaTester"
+APP_VERSION = "2026.11"
+# 配布用 zip を作るときに tools/build_release.py が edition.txt を置く。無ければ製品版
+EDITION_FILE = BASE_DIR / "edition.txt"
+EDITION = EDITION_FILE.read_text(encoding="utf-8").strip() if EDITION_FILE.exists() else "full"
 TUNNELD_PORT = 49151
 TUNNELD_LOG = BASE_DIR / "tunneld.log"
 LOCATION_LOG = BASE_DIR / "location.log"
@@ -119,8 +124,13 @@ def _get_rsd() -> tuple[str, int]:
 
 
 def _run(args: list[str], timeout: int = 30) -> str:
+    """pymobiledevice3 CLI を実行する"""
+    return _run_cmd([_cli_path()] + args, timeout)
+
+
+def _run_cmd(cmd: list[str], timeout: int = 30) -> str:
     result = subprocess.run(
-        [_cli_path()] + args,
+        cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -405,11 +415,65 @@ def _hold_location_cmd(lat: float, lng: float) -> list[str]:
     return cmd
 
 
+async def _prepare_developer_services(errors: list[str]):
+    """
+    Developer Disk Image をマウントする。デベロッパーモードが OFF なら
+    隠れた項目の表示＋自動有効化をその場で行い、分かりやすいエラーを返す。
+    """
+    try:
+        await asyncio.to_thread(_ensure_ddi_mounted)
+    except Exception as e:
+        errors.append(f"DDIマウント: {e}")
+        if "Developer Mode is disabled" in str(e):
+            # この状態では他の方法も必ず失敗する
+            result = await enable_developer_mode()
+            raise HTTPException(
+                status_code=400,
+                detail="iPhoneのデベロッパーモードがOFFだったため、自動で対処しました。" + result["message"],
+            )
+
+
+def _check_device_cmd() -> list[str]:
+    cmd = [sys.executable, "-u", str(BASE_DIR / "check_device.py")]
+    try:
+        host, port = _get_rsd()
+        cmd += ["--rsd", host, str(port)]
+    except Exception:
+        pass
+    return cmd
+
+
+async def _check_only():
+    """動作チェック版: 位置を変更する直前まで確認する"""
+    errors: list[str] = []
+    await _prepare_developer_services(errors)
+    try:
+        out = await asyncio.to_thread(_run_cmd, _check_device_cmd(), 120)
+    except Exception as e:
+        errors.append(f"チェック: {e}")
+        raise HTTPException(status_code=500, detail=await _location_error_detail(errors))
+    version = out.splitlines()[-1].replace("CHECK OK", "").strip(" ()") if out else ""
+    return {
+        "success": True,
+        "check": True,
+        "message": f"✅ 動作チェックOK（{version}）。このPCとiPhoneの組み合わせで製品版の位置変更が使えます。"
+        "※動作チェック版では位置は変更されません。",
+    }
+
+
+@app.get("/api/info")
+async def app_info():
+    return {"product": PRODUCT_NAME, "version": APP_VERSION, "edition": EDITION}
+
+
 @app.post("/api/location")
 async def set_location(req: LocationRequest):
+    if EDITION == "check":
+        return await _check_only()
+
     errors = []
 
-    # Method 1: DtSimulateLocation (no Developer Mode required)
+    # Method 1: DtSimulateLocation (iOS 16 and below)
     try:
         await _set_via_dt_simulate(req.lat, req.lng)
         return {
@@ -422,17 +486,7 @@ async def set_location(req: LocationRequest):
         errors.append(f"DtSimulate: {e}")
 
     # Method 2: DVT (requires Developer Mode, iOS 17+). プロセスを保持し続ける
-    try:
-        await asyncio.to_thread(_ensure_ddi_mounted)
-    except Exception as e:
-        errors.append(f"DDIマウント: {e}")
-        if "Developer Mode is disabled" in str(e):
-            # この状態では他の方法も必ず失敗する。隠れた項目の表示＋自動有効化をその場で行う
-            result = await enable_developer_mode()
-            raise HTTPException(
-                status_code=400,
-                detail="iPhoneのデベロッパーモードがOFFだったため、自動で対処しました。" + result["message"],
-            )
+    await _prepare_developer_services(errors)
     try:
         await asyncio.to_thread(_start_location_proc, _hold_location_cmd(req.lat, req.lng))
         return {
