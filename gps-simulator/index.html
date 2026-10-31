@@ -137,7 +137,7 @@
   <span id="device-name"></span>
   <span id="devmode-text"></span>
   <button id="btn-devmode" class="btn-secondary" onclick="enableDeveloperMode()">🛠 デベロッパーモードを有効化</button>
-  <span id="app-version" style="font-size:11px;color:#666">v2026.10.31b</span>
+  <span id="app-version" style="font-size:11px;color:#666">v2026.10.31c</span>
 </div>
 
 <div id="main">
@@ -272,6 +272,7 @@
 
   async function setLocation() {
     if (selectedLat === null) { showToast('まず地図上の位置を選んでください', 'error'); return; }
+    showToast('設定中...（初回やデベロッパーモードの設定時は時間がかかります）', '', 300000);
     try {
       const res = await fetch('/api/location', {
         method: 'POST',
@@ -282,7 +283,7 @@
       if (!res.ok) throw new Error(data.detail || '不明なエラー');
       showToast(data.message, 'success');
     } catch (e) {
-      showToast(`エラー: ${e.message}`, 'error', 10000);
+      showToast(`エラー: ${e.message}`, 'error', 30000);
     }
   }
 
