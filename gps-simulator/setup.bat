@@ -25,6 +25,19 @@ echo [OK] Python found:
 python --version
 echo.
 
+rem --- The packages are downloaded from pypi.org, so check that it can be reached first
+python -c "import socket; socket.getaddrinfo('pypi.org', 443)" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Cannot reach the internet ^(pypi.org^).
+    echo   - Check that this PC is connected to the internet ^(open a website in your browser^).
+    echo   - If you use a VPN or security software, try turning it off.
+    echo   - School or company networks may block it. Try another network
+    echo     ^(home Wi-Fi or phone tethering^).
+    echo   - Then double-click start.bat again.
+    pause
+    exit /b 1
+)
+
 if exist venv (
     echo [SKIP] venv already exists.
 ) else (
@@ -42,12 +55,17 @@ echo.
 echo [RUN] Installing packages...
 call venv\Scripts\activate.bat
 pip install --upgrade pip -q --no-cache-dir
+if exist venv\installed.txt del venv\installed.txt
 pip install --no-cache-dir -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Package installation failed.
+    echo   If you see "getaddrinfo failed" above, this PC could not reach the internet.
+    echo   Check the connection, then double-click start.bat again ^(setup will run again^).
     pause
     exit /b 1
 )
+rem Marker: start.bat runs setup again until this file exists
+echo ok> venv\installed.txt
 
 echo.
 echo ========================================
