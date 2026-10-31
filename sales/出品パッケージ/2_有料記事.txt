@@ -30,6 +30,8 @@ WindowsのパソコンにUSBでつないだiPhoneの位置情報を、地図で�
 ・インターネット接続（初めて使うとき）
 ・Microsoft Storeの「Apple Devices」アプリ（無料）
 
+動作を確認した環境（2026年10月）：Windows ／ iPhone（iOS 26.6.2）
+
 
 ■ 買う前に必ずお読みください
 
