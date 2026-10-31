@@ -1,15 +1,23 @@
 @echo off
 cd /d "%~dp0"
 echo ========================================
-echo  iPhone GPS Simulator - Setup
+echo  LocaTester - Setup
 echo ========================================
 echo.
 
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found.
-    echo Please install Python 3.10 or later:
-    echo https://www.python.org/downloads/
+    echo [INFO] Python not found. Trying to install it automatically with winget...
+    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+        echo [ERROR] Automatic install failed.
+        echo Please install Python 3.10 or later and check "Add python.exe to PATH":
+        echo https://www.python.org/downloads/
+        pause
+        exit /b 1
+    )
+    echo.
+    echo [OK] Python installed. Please close this window and double-click start.bat again.
     pause
     exit /b 1
 )

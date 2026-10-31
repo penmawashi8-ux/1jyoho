@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  iPhone GPS Simulator - one-click launcher
+rem  LocaTester - one-click launcher
 rem  Double-click this file. It will automatically:
 rem   1. Re-launch itself as administrator (click "Yes" on UAC)
 rem   2. Run setup on first launch (venv + packages)
@@ -20,7 +20,7 @@ rem After elevation the cwd is System32, so go back to the script dir
 cd /d "%~dp0"
 
 echo ========================================
-echo  iPhone GPS Simulator - Starting...
+echo  LocaTester - Starting...
 echo ========================================
 echo.
 
@@ -34,6 +34,12 @@ if not exist venv (
 )
 
 call venv\Scripts\activate.bat
+
+rem --- Keep pymobiledevice3 up to date (new iOS support usually arrives here).
+rem     If an update breaks something, run rollback.bat.
+echo [INFO] Checking for updates...
+pip install -q --upgrade --no-cache-dir -r requirements.txt >nul 2>&1
+if errorlevel 1 echo [WARN] Update check failed (offline?). Continuing with the installed version.
 
 echo [INFO] Starting server at http://localhost:8000
 echo [INFO] tunneld is started automatically in the background.

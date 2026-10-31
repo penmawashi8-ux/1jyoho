@@ -1,3 +1,4 @@
 fastapi
 uvicorn[standard]
-pymobiledevice3
+# 同じメジャーバージョン内で自動更新する（start.bat が起動時に更新）
+pymobiledevice3>=11.44,<12
