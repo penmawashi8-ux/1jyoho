@@ -295,8 +295,11 @@ async def enable_developer_mode():
     except Exception as e:
         if "passcode" in str(e).lower():
             message = (
-                "デベロッパーモードの項目を表示させました。iPhoneの「設定」→「プライバシーとセキュリティ」→"
-                "「デベロッパーモード」をONにして再起動してください。"
+                "隠れていた「デベロッパモード」の項目をiPhoneに表示させました。"
+                "iPhoneの「設定」→「プライバシーとセキュリティ」→一番下の「デベロッパモード」をONにして再起動し、"
+                "ロック解除時の確認で「オンにする」をタップしてください。"
+                "（項目を触らずに済ませたい場合: iPhoneのパスコードを一時的にオフにしてからもう一度実行すると、"
+                "自動でONになります。終わったらパスコードを戻してください）"
             )
         else:
             message = f"項目を表示させました。設定から手動でONにしてください（自動有効化エラー: {e}）"
@@ -423,8 +426,12 @@ async def set_location(req: LocationRequest):
     except Exception as e:
         errors.append(f"DDIマウント: {e}")
         if "Developer Mode is disabled" in str(e):
-            # この状態では他の方法も必ず失敗するので、すぐに分かりやすく返す
-            raise HTTPException(status_code=400, detail=await _location_error_detail(errors))
+            # この状態では他の方法も必ず失敗する。隠れた項目の表示＋自動有効化をその場で行う
+            result = await enable_developer_mode()
+            raise HTTPException(
+                status_code=400,
+                detail="iPhoneのデベロッパーモードがOFFだったため、自動で対処しました。" + result["message"],
+            )
     try:
         await asyncio.to_thread(_start_location_proc, _dvt_set_args(req.lat, req.lng))
         return {
