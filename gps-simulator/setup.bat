@@ -54,9 +54,9 @@ echo.
 
 echo [RUN] Installing packages...
 call venv\Scripts\activate.bat
-pip install --upgrade pip -q --no-cache-dir
+python -m pip install --upgrade pip -q --no-cache-dir
 if exist venv\installed.txt del venv\installed.txt
-pip install --no-cache-dir -r requirements.txt
+python -m pip install --no-cache-dir -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Package installation failed.
     echo   If you see "getaddrinfo failed" above, this PC could not reach the internet.

@@ -39,7 +39,7 @@ call venv\Scripts\activate.bat
 rem --- Keep pymobiledevice3 up to date (new iOS support usually arrives here).
 rem     If an update breaks something, run rollback.bat.
 echo [INFO] Checking for updates...
-pip install -q --upgrade --no-cache-dir -r requirements.txt >nul 2>&1
+python -m pip install -q --upgrade --no-cache-dir -r requirements.txt >nul 2>&1
 if errorlevel 1 echo [WARN] Update check failed (offline?). Continuing with the installed version.
 
 echo [INFO] Starting server at http://localhost:8000
