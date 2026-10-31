@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;900&display=block');
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1280px;height:670px;overflow:hidden;font-family:'Noto Sans JP','IPAGothic',sans-serif;color:#fff;
+ background:radial-gradient(circle at 85% 30%,#24407a 0,#16213e 45%,#0f1830 100%);position:relative}
+.grid{position:absolute;inset:0;opacity:.18;
+ background-image:linear-gradient(#667eea 1px,transparent 1px),linear-gradient(90deg,#667eea 1px,transparent 1px);background-size:56px 56px}
+.road{position:absolute;border-radius:20px;background:#2b4c8f;opacity:.55}
+.text{position:absolute;left:72px;top:0;bottom:0;width:700px;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.badge{display:inline-flex;gap:10px}
+.badge span{background:#667eea;font-weight:700;font-size:24px;padding:6px 16px;border-radius:8px}
+.badge span.g{background:#27ae60}
+h1{font-weight:900;font-size:60px;line-height:1.22;letter-spacing:.01em}
+h1 em{font-style:normal;color:#8fa6ff}
+.sub{font-size:28px;font-weight:500;color:#d6defa;line-height:1.5}
+.brand{font-size:24px;color:#8fa6ff;font-weight:700;letter-spacing:.08em}
