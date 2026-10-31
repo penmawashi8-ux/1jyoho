@@ -303,21 +303,30 @@ async def enable_developer_mode():
         return {"success": False, "revealed": True, "message": message}
 
 
+DEVMODE_OFF_HINT = (
+    "iPhone側でデベロッパーモードがOFFになっています（iPhone本体がそう応答しました）。"
+    "画面上部の「🛠 デベロッパーモードを有効化」を押すか、iPhoneの「設定」→「プライバシーとセキュリティ」→"
+    "一番下の「デベロッパモード」をONにして再起動し、再起動後のロック解除時に出る確認で「オンにする」を"
+    "タップしてください（これをしないとONになりません）。"
+)
+
+
 async def _location_error_detail(errors: list[str]) -> str:
     """失敗理由のうち、ユーザーが対処できるものを先頭に出す"""
     hint = _tunneld_error()
+    if hint is None and any("Developer Mode is disabled" in e for e in errors):
+        hint = DEVMODE_OFF_HINT
     if hint is None:
         try:
             out = await asyncio.to_thread(_run, ["amfi", "developer-mode-status"], 15)
             if "false" in out.lower():
-                hint = (
-                    "iPhoneのデベロッパーモードがOFFです。画面上部の「🛠 デベロッパーモードを有効化」を"
-                    "押してONにしてください（OFFだとiOS 17以降はPCとの通信路が作れません）。"
-                )
+                hint = DEVMODE_OFF_HINT
         except Exception:
             pass
     detail = " / ".join(errors)
-    return f"{hint} [詳細] {detail}" if hint else detail
+    if hint:
+        return f"{hint} [詳細] {detail[:300]}…" if len(detail) > 300 else f"{hint} [詳細] {detail}"
+    return detail
 
 
 def _start_location_proc(args: list[str], timeout: int = 60):
@@ -413,6 +422,9 @@ async def set_location(req: LocationRequest):
         await asyncio.to_thread(_ensure_ddi_mounted)
     except Exception as e:
         errors.append(f"DDIマウント: {e}")
+        if "Developer Mode is disabled" in str(e):
+            # この状態では他の方法も必ず失敗するので、すぐに分かりやすく返す
+            raise HTTPException(status_code=400, detail=await _location_error_detail(errors))
     try:
         await asyncio.to_thread(_start_location_proc, _dvt_set_args(req.lat, req.lng))
         return {
