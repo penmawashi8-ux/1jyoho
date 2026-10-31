@@ -16,7 +16,7 @@ SRC = ROOT / "gps-simulator"
 DIST = ROOT / "dist"
 TOP = "LocaTester"
 # 著作権者名（GPL v3 第4条: 各複製に適切な著作権表示が必要）。出品前に自分の名前に変える
-COPYRIGHT_HOLDER = "（著作権者名）"
+COPYRIGHT_HOLDER = "penmawashi8-ux"
 
 EXCLUDE_DIRS = {"venv", "__pycache__"}
 EXCLUDE_FILES = {"edition.txt", "diagnose.txt", ".gitignore"}
