@@ -92,6 +92,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def no_cache(request, call_next):
+    # 古い版の画面がブラウザに残って表示されないよう、毎回取り直させる
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 class LocationRequest(BaseModel):
     lat: float
     lng: float
@@ -335,6 +343,13 @@ async def _location_error_detail(errors: list[str]) -> str:
             if "false" in out.lower():
                 hint = DEVMODE_OFF_HINT
         except Exception:
+            pass
+    if hint == DEVMODE_OFF_HINT:
+        # 案内だけでなく、隠れた項目の表示＋自動有効化をその場で行う
+        try:
+            result = await enable_developer_mode()
+            hint = "iPhoneのデベロッパーモードがOFFだったため、自動で対処しました。" + result["message"]
+        except HTTPException:
             pass
     detail = " / ".join(errors)
     if hint:
