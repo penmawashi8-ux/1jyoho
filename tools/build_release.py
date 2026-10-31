@@ -68,8 +68,8 @@ def build(edition: str, version: str) -> Path:
         # メモ帳で文字化けしないよう BOM 付き UTF-8・CRLF にする
         note = LICENSE_NOTE.format(holder=COPYRIGHT_HOLDER).replace("\n", "\r\n")
         z.writestr(f"{TOP}/LICENSE-ja.txt", note.encode("utf-8-sig"))
-        if edition == "check":
-            z.writestr(f"{TOP}/edition.txt", "check\n")
+        # 両方に書く（製品版を動作チェック版のフォルダに上書き展開しても、製品版として動くように）
+        z.writestr(f"{TOP}/edition.txt", f"{edition}\n")
     return out
 
 
