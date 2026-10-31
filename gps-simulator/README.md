@@ -110,6 +110,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 gps-simulator/
 ├── main.py          # FastAPIバックエンド
+├── hold_location.py # 位置を保持し続ける補助スクリプト（iOS 17以降）
 ├── index.html       # フロントエンド（地図UI）
 ├── requirements.txt # Pythonパッケージ一覧
 ├── setup.bat        # セットアップスクリプト（start.bat から自動実行）
