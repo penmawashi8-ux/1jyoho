@@ -24,8 +24,9 @@ echo  LocaTester - Starting...
 echo ========================================
 echo.
 
-if not exist venv (
-    echo [INFO] First run: running setup...
+rem Run setup on the first launch, or again if a previous setup did not finish
+if not exist venv\installed.txt (
+    echo [INFO] Running setup...
     call setup.bat /nopause
     if errorlevel 1 (
         pause
