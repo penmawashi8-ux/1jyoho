@@ -105,6 +105,22 @@
     #btn-set   { background: #27ae60; color: #fff; padding: 12px; font-size: 14px; }
     #btn-reset { background: #e74c3c; color: #fff; padding: 12px; font-size: 14px; }
 
+    /* 結果を消えずに残しておく欄 */
+    #result {
+      background: #0f3460;
+      border-left: 4px solid #667eea;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #result.success { border-left-color: #27ae60; }
+    #result.error   { border-left-color: #e74c3c; }
+
     #toast {
       position: fixed;
       bottom: 24px;
@@ -198,6 +214,8 @@
       <button id="btn-set" onclick="setLocation()">📍 この位置をセット</button>
       <button id="btn-reset" onclick="resetLocation()">↩️ 位置情報をリセット</button>
     </div>
+
+    <div id="result" hidden></div>
   </div>
 </div>
 
@@ -272,7 +290,8 @@
 
   async function setLocation() {
     if (selectedLat === null) { showToast('まず地図上の位置を選んでください', 'error'); return; }
-    showToast('設定中...（初回やデベロッパーモードの設定時は時間がかかります）', '', 300000);
+    showToast('処理中...（初回やデベロッパーモードの設定時は時間がかかります）', '', 300000);
+    showResult('処理中...（初回やデベロッパーモードの設定時は時間がかかります）', '');
     try {
       const res = await fetch('/api/location', {
         method: 'POST',
@@ -281,9 +300,11 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || '不明なエラー');
-      showToast(data.message, 'success');
+      showToast(data.message, 'success', 8000);
+      showResult(data.message, 'success');
     } catch (e) {
-      showToast(`エラー: ${e.message}`, 'error', 30000);
+      showToast('エラーが発生しました。右側の欄で内容を確認してください', 'error', 8000);
+      showResult(`エラー: ${e.message}`, 'error');
     }
   }
 
@@ -292,9 +313,11 @@
       const res = await fetch('/api/location/reset', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || '不明なエラー');
-      showToast(data.message, 'success');
+      showToast(data.message, 'success', 8000);
+      showResult(data.message, 'success');
     } catch (e) {
-      showToast(`エラー: ${e.message}`, 'error');
+      showToast('エラーが発生しました。右側の欄で内容を確認してください', 'error', 8000);
+      showResult(`エラー: ${e.message}`, 'error');
     }
   }
 
@@ -326,8 +349,10 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || '不明なエラー');
       showToast(data.message, data.success ? 'success' : '', 12000);
+      showResult(data.message, data.success ? 'success' : '');
     } catch (e) {
-      showToast(`エラー: ${e.message}`, 'error');
+      showToast('エラーが発生しました。右側の欄で内容を確認してください', 'error', 8000);
+      showResult(`エラー: ${e.message}`, 'error');
     } finally {
       btn.disabled = false;
       devModeChecked = false;
@@ -380,8 +405,17 @@
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.className = `show ${type}`;
+    el.onclick = () => { el.className = ''; };  // クリックで閉じる
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.className = ''; }, duration);
+  }
+
+  // 結果は消えずに右側の欄に残す
+  function showResult(msg, type) {
+    const el = document.getElementById('result');
+    el.textContent = msg;
+    el.className = type;
+    el.hidden = false;
   }
 </script>
 </body>
