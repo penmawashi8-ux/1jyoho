@@ -12,7 +12,7 @@ if not exist venv (
 call venv\Scripts\activate.bat
 echo [RUN] Installing the known good version...
 type known_good.txt
-pip install --no-cache-dir -r known_good.txt
+python -m pip install --no-cache-dir -r known_good.txt
 if errorlevel 1 (
     echo [ERROR] Rollback failed.
     pause
