@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "gps-simulator"
 DIST = ROOT / "dist"
 TOP = "LocaTester"
+# 著作権者名（GPL v3 第4条: 各複製に適切な著作権表示が必要）。出品前に自分の名前に変える
+COPYRIGHT_HOLDER = "（著作権者名）"
 
 EXCLUDE_DIRS = {"venv", "__pycache__"}
 EXCLUDE_FILES = {"edition.txt", "diagnose.txt", ".gitignore"}
@@ -22,7 +24,10 @@ EXCLUDE_SUFFIXES = {".log", ".pyc"}
 # 動作チェック版には位置を変更するスクリプトを入れない
 CHECK_EXCLUDE = {"hold_location.py"}
 
-LICENSE_NOTE = """このソフトウェアは GNU General Public License v3.0（GPL-3.0）で配布しています。
+LICENSE_NOTE = """LocaTester
+Copyright (C) 2026 {holder}
+
+このソフトウェアは GNU General Public License v3.0（GPL-3.0）で配布しています。
 全文は同梱の LICENSE を参照してください。
 
 - この zip にはソースコードが含まれています（GPL のソースコード提供義務を満たしています）。
@@ -60,13 +65,15 @@ def build(edition: str, version: str) -> Path:
                 continue
             z.write(p, f"{TOP}/{rel.as_posix()}")
         z.write(ROOT / "LICENSE", f"{TOP}/LICENSE")
-        z.writestr(f"{TOP}/LICENSE-ja.txt", LICENSE_NOTE)
+        z.writestr(f"{TOP}/LICENSE-ja.txt", LICENSE_NOTE.format(holder=COPYRIGHT_HOLDER))
         if edition == "check":
             z.writestr(f"{TOP}/edition.txt", "check\n")
     return out
 
 
 def main():
+    if COPYRIGHT_HOLDER.startswith("（"):
+        print("警告: tools/build_release.py の COPYRIGHT_HOLDER を自分の名前に変えてください")
     version = app_version()
     for edition in ("full", "check"):
         out = build(edition, version)
