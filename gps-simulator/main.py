@@ -332,7 +332,7 @@ async def _location_error_detail(errors: list[str]) -> str:
     return detail
 
 
-def _start_location_proc(args: list[str], timeout: int = 60):
+def _start_location_proc(cmd: list[str], timeout: int = 60):
     """
     pymobiledevice3 developer dvt simulate-location set は位置をセットした後
     「Press ENTER to exit」で待機し、終了すると位置が元に戻る。
@@ -343,7 +343,7 @@ def _start_location_proc(args: list[str], timeout: int = 60):
     log = open(LOCATION_LOG, "w", encoding="utf-8", errors="replace")
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     proc = subprocess.Popen(
-        [_cli_path()] + args,
+        cmd,
         stdin=subprocess.PIPE,  # 何も書き込まないので ENTER 待ちのまま止まる
         stdout=log,
         stderr=subprocess.STDOUT,
@@ -394,14 +394,15 @@ def _ensure_ddi_mounted():
     _ddi_mounted = True
 
 
-def _dvt_set_args(lat: float, lng: float) -> list[str]:
-    args = ["developer", "dvt", "simulate-location", "set"]
+def _hold_location_cmd(lat: float, lng: float) -> list[str]:
+    """hold_location.py: 位置をセットして接続を保ち続ける（数十秒で戻る問題の対策）"""
+    cmd = [sys.executable, "-u", str(BASE_DIR / "hold_location.py"), str(lat), str(lng)]
     try:
         host, port = _get_rsd()
-        args += ["--rsd", host, str(port)]  # "--" より前に置く（後ろだと座標扱いになる）
+        cmd += ["--rsd", host, str(port)]
     except Exception:
-        pass  # CLI が tunneld を自動で探す
-    return _with_coords(args, lat, lng)
+        pass  # tunneld が無ければ no-root の userspace トンネルを使う
+    return cmd
 
 
 @app.post("/api/location")
@@ -433,7 +434,7 @@ async def set_location(req: LocationRequest):
                 detail="iPhoneのデベロッパーモードがOFFだったため、自動で対処しました。" + result["message"],
             )
     try:
-        await asyncio.to_thread(_start_location_proc, _dvt_set_args(req.lat, req.lng))
+        await asyncio.to_thread(_start_location_proc, _hold_location_cmd(req.lat, req.lng))
         return {
             "success": True,
             "lat": req.lat,
